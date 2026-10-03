@@ -3,6 +3,7 @@ name: live
 on:
   push:
     branches: [ci/live-localnet]
+  pull_request:
   workflow_dispatch:
 
 concurrency:
@@ -15,12 +16,6 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
-  LOCALNET_VALIDATOR_API_URL: http://localhost:11903
-  WALLET_ADMIN_USERNAME: a-validator-1
-  WALLET_ADMIN_PASSWORD: abc123
-  WALLET_ADMIN_CLIENT_ID: a-validator-1-unsafe
-  ADMIN_GRPC_URL: http://localhost:11902
-  SCAN_URL: http://scan.localhost:10000
   LICENSING_DAR: testdata/live/quickstart-licensing-0.0.1.dar
 
 jobs:
@@ -53,10 +48,11 @@ jobs:
         run: .github/scripts/headroom.sh after-compile
 
       - name: Boot LocalNet with validator a and PQS
-        uses: peacefulstudio/canton-localnet@5bba9ec3e8c0bbfb9478a57478adb1f33e8e7793 # v0.8.4-1
+        uses: peacefulstudio/canton-localnet@f4158fccaea2bd2248f37c6b361ed3f37d478dcf # v0.8.4-2
         with:
           validators: a
           pqs: true
+          party: true
           cli: source
 
       - name: Record the end of the LocalNet boot
@@ -78,37 +74,19 @@ jobs:
             echo "CANTON_TEST_CLIENT_SECRET=$(export_of CLIENT_SECRET)"
             echo "CANTON_TEST_ADMIN_CLIENT_ID=$(export_of CLIENT_ID)"
             echo "CANTON_TEST_ADMIN_CLIENT_SECRET=$(export_of CLIENT_SECRET)"
+            echo "CANTON_TEST_ADMIN_ENDPOINT=$(export_of ADMIN_GRPC_URL)"
+            echo "CANTON_TEST_PARTY=$(export_of PARTY)"
+            echo "CANTON_TOKEN_REGISTRY_URL=${CANTON_LOCALNET_SCAN_URL}"
             echo "CANTON_PQS_URL=host=$(export_of PQS_HOST) port=$(export_of PQS_PORT) user=$(export_of PQS_USER) password=$(export_of PQS_PASSWORD) dbname=$(export_of PQS_DATABASE)"
           } >> "$GITHUB_ENV"
-
-      - name: Set the admin gRPC endpoint (workaround, canton-localnet v0.8.4-1 lacks an admin gRPC URL export)
-        run: echo "CANTON_TEST_ADMIN_ENDPOINT=${ADMIN_GRPC_URL}" >> "$GITHUB_ENV"
-
-      - name: Resolve the validator party from the validator user (workaround, canton-localnet v0.8.4-1 lacks a validator party export)
-        run: |
-          set -euo pipefail
-          token=$(curl -fsS "$CANTON_TEST_TOKEN_URL" \
-            -d grant_type=client_credentials \
-            -d client_id="$CANTON_TEST_CLIENT_ID" \
-            -d client_secret="$CANTON_TEST_CLIENT_SECRET" | jq -r .access_token)
-          echo "::add-mask::$token"
-          party=$(curl -fsS -H "Authorization: Bearer $token" \
-            "$CANTON_TEST_JSON_ENDPOINT/v2/users/$CANTON_LOCALNET_A_VALIDATOR_1_VALIDATOR_USER_ID" \
-            | jq -r .user.primaryParty)
-          test -n "$party" && test "$party" != null
-          echo "validator party: $party"
-          echo "CANTON_TEST_PARTY=$party" >> "$GITHUB_ENV"
 
       - name: Measure whether scan.localhost resolves and answers on the runner
         run: |
           getent hosts scan.localhost || echo "scan.localhost does not resolve through getent"
           curl -sS -o /dev/null -w "scan.localhost:10000 registry info -> HTTP %{http_code}\n" \
-            --max-time 20 "${SCAN_URL}/registry/metadata/v1/info" || echo "curl to scan.localhost failed"
+            --max-time 20 "${CANTON_LOCALNET_SCAN_URL}/registry/metadata/v1/info" || echo "curl to scan.localhost failed"
 
-      - name: Set the token registry URL (workaround, canton-localnet v0.8.4-1 lacks a Scan URL export)
-        run: echo "CANTON_TOKEN_REGISTRY_URL=${SCAN_URL}" >> "$GITHUB_ENV"
-
-      - name: Verify and upload the quickstart-licensing DAR through the JSON Ledger API
+      - name: Verify and upload the quickstart-licensing DAR through the JSON Ledger API (workaround, canton-localnet v0.8.4-2 has no DAR upload command)
         run: |
           set -euo pipefail
           (cd "$(dirname "$LICENSING_DAR")" && sha256sum -c "$(basename "$LICENSING_DAR").sha256")
@@ -123,29 +101,10 @@ jobs:
             --data-binary "@${LICENSING_DAR}"
           echo "CANTON_TEST_LICENSING_PKG=#quickstart-licensing" >> "$GITHUB_ENV"
 
-      - name: Tap Amulet into the validator wallet (workaround, canton-localnet v0.8.4-1 lacks an Amulet tap command)
-        run: |
-          set -euo pipefail
-          token=$(curl -fsS "$CANTON_TEST_TOKEN_URL" \
-            -d grant_type=password \
-            -d client_id="$WALLET_ADMIN_CLIENT_ID" \
-            -d username="$WALLET_ADMIN_USERNAME" \
-            -d password="$WALLET_ADMIN_PASSWORD" | jq -r .access_token)
-          echo "::add-mask::$token"
-          for attempt in $(seq 1 24); do
-            status=$(curl -sS -o "$RUNNER_TEMP/tap.json" -w '%{http_code}' \
-              -X POST "${LOCALNET_VALIDATOR_API_URL}/api/validator/v0/wallet/tap" \
-              -H "Authorization: Bearer $token" \
-              -H "Content-Type: application/json" \
-              -d '{"amount":"1000"}')
-            echo "attempt $attempt: HTTP $status $(head -c 300 "$RUNNER_TEMP/tap.json")"
-            if [ "$status" = 200 ]; then exit 0; fi
-            sleep 5
-          done
-          echo "::error::the wallet tap never succeeded"
-          exit 1
+      - name: Fund the validator wallet with Amulet
+        run: canton-localnet tap --slot a --at-least 1000
 
-      - name: Wait until PQS has ingested an active Amulet
+      - name: Wait until PQS has ingested an active Amulet (workaround, canton-localnet v0.8.4-2 has no PQS readiness wait after tap)
         run: |
           set -euo pipefail
           sudo apt-get install -y --no-install-recommends postgresql-client >/dev/null
@@ -171,38 +130,33 @@ jobs:
           .github/scripts/phase.sh suites-start
 
       - name: Run canton-ledger live suite
-        continue-on-error: true
         env:
           CANTON_TEST_REQUIRE_LIVE: "1"
         run: .github/scripts/live-suite.sh ledger-live -p canton-ledger --test live
 
       - name: Run canton-ledger interactive submission suite
-        continue-on-error: true
         env:
           CANTON_TEST_REQUIRE_LIVE: "1"
         run: .github/scripts/live-suite.sh ledger-interactive -p canton-ledger --test interactive_live
 
       - name: Run canton-admin live suite
-        continue-on-error: true
         env:
           CANTON_TEST_REQUIRE_LIVE: "1"
         run: .github/scripts/live-suite.sh admin -p canton-admin --test live
 
       - name: Run canton-pqs live suite
-        continue-on-error: true
         env:
           CANTON_TEST_REQUIRE_LIVE: "1"
         run: .github/scripts/live-suite.sh pqs -p canton-pqs --test live
 
       - name: Run canton-token live suite
-        continue-on-error: true
         env:
           CANTON_TEST_REQUIRE_LIVE: "1"
         run: .github/scripts/live-suite.sh token -p canton-token --test live
 
       - name: Tear down LocalNet
         if: always()
-        uses: peacefulstudio/canton-localnet/teardown@5bba9ec3e8c0bbfb9478a57478adb1f33e8e7793 # v0.8.4-1
+        uses: peacefulstudio/canton-localnet/teardown@f4158fccaea2bd2248f37c6b361ed3f37d478dcf # v0.8.4-2
 
       - name: Summarise phase timings
         if: always()
