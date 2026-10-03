@@ -339,9 +339,9 @@ jobs:
   # bloat, and the pin is what makes the run reproducible. Bumping the pin is a
   # deliberate edit that comes with new checksums.
   #
-  # canton-quickstart-licensing is absent on purpose: its DAR is built from
-  # source in cn-quickstart rather than committed, so there is nothing to pin.
-  # That guard stays local-only.
+  # canton-quickstart-licensing is absent on purpose: cn-quickstart builds its
+  # DAR from source rather than tracking it, so there is nothing to pin. The
+  # DAR is committed under testdata/live instead, for the live workflow.
   bindings-drift:
     name: Committed bindings match the emitter
     runs-on: ubuntu-latest
@@ -396,8 +396,9 @@ jobs:
               echo "::error::the ${crate} drift guard did not run"; exit 1; }
           done
           # `canton-quickstart-licensing` is generated from a DAR that
-          # cn-quickstart builds from source rather than commits, so there is
-          # nothing to pin and nothing to fetch. That one guard stays local.
+          # cn-quickstart builds from source rather than tracks, so there is
+          # nothing to pin and nothing to fetch; its DAR is committed under
+          # testdata/live for the live workflow.
           ! grep -q 'skipping canton-splice' /tmp/drift.log || {
             echo "::error::a guard skipped despite its DAR being present"; exit 1; }
 
