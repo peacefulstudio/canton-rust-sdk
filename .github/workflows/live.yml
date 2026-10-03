@@ -132,10 +132,18 @@ jobs:
             -d username="$WALLET_ADMIN_USERNAME" \
             -d password="$WALLET_ADMIN_PASSWORD" | jq -r .access_token)
           echo "::add-mask::$token"
-          curl -fsS -X POST "${LOCALNET_VALIDATOR_API_URL}/api/validator/v0/wallet/tap" \
-            -H "Authorization: Bearer $token" \
-            -H "Content-Type: application/json" \
-            -d '{"amount":"1000"}'
+          for attempt in $(seq 1 24); do
+            status=$(curl -sS -o "$RUNNER_TEMP/tap.json" -w '%{http_code}' \
+              -X POST "${LOCALNET_VALIDATOR_API_URL}/api/validator/v0/wallet/tap" \
+              -H "Authorization: Bearer $token" \
+              -H "Content-Type: application/json" \
+              -d '{"amount":"1000"}')
+            echo "attempt $attempt: HTTP $status $(head -c 300 "$RUNNER_TEMP/tap.json")"
+            if [ "$status" = 200 ]; then exit 0; fi
+            sleep 5
+          done
+          echo "::error::the wallet tap never succeeded"
+          exit 1
 
       - name: Wait until PQS has ingested an active Amulet
         run: |
