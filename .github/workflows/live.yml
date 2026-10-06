@@ -39,7 +39,7 @@ jobs:
           cargo test --no-run --all-features -p canton-token --test live
 
       - name: Boot LocalNet with validator a and PQS
-        uses: peacefulstudio/canton-localnet@f4158fccaea2bd2248f37c6b361ed3f37d478dcf # v0.8.4-2
+        uses: peacefulstudio/canton-localnet@1cf682aae212d4e2fefb882bcf9c97ea95036a59 # v0.8.4-3
         with:
           validators: a
           pqs: true
@@ -65,7 +65,7 @@ jobs:
             echo "CANTON_PQS_URL=host=$(export_of PQS_HOST) port=$(export_of PQS_PORT) user=$(export_of PQS_USER) password=$(export_of PQS_PASSWORD) dbname=$(export_of PQS_DATABASE)"
           } >> "$GITHUB_ENV"
 
-      - name: Verify and upload the quickstart-licensing DAR through the JSON Ledger API (workaround, canton-localnet v0.8.4-2 has no DAR upload command)
+      - name: Verify and upload the quickstart-licensing DAR through the JSON Ledger API (workaround, canton-localnet v0.8.4-3 has no DAR upload command)
         run: |
           set -euo pipefail
           (cd "$(dirname "$LICENSING_DAR")" && sha256sum -c "$(basename "$LICENSING_DAR").sha256")
@@ -80,37 +80,8 @@ jobs:
             --data-binary "@${LICENSING_DAR}"
           echo "CANTON_TEST_LICENSING_PKG=#quickstart-licensing" >> "$GITHUB_ENV"
 
-      - name: Wait until PQS follows the ledger (workaround, canton-localnet v0.8.4-2 does not wait for PQS to be ingesting before the boot step returns)
-        run: |
-          set -euo pipefail
-          sudo apt-get install -y --no-install-recommends postgresql-client >/dev/null
-          for attempt in $(seq 1 60); do
-            count=$(psql "$CANTON_PQS_URL" -Atc "select count(*) from active('splice-amulet:Splice.Amulet:Amulet')" 2>&1 || true)
-            echo "attempt $attempt: $count"
-            if [[ "$count" =~ ^[0-9]+$ ]]; then
-              exit 0
-            fi
-            sleep 5
-          done
-          echo "::error::PQS never became queryable"
-          exit 1
-
       - name: Fund the validator wallet with Amulet
         run: canton-localnet tap --slot a --at-least 1000
-
-      - name: Wait until PQS has ingested an active Amulet (workaround, canton-localnet v0.8.4-2 has no PQS readiness wait after tap)
-        run: |
-          set -euo pipefail
-          for attempt in $(seq 1 60); do
-            count=$(psql "$CANTON_PQS_URL" -Atc "select count(*) from active('splice-amulet:Splice.Amulet:Amulet')")
-            echo "attempt $attempt: $count"
-            if [ "$count" -gt 0 ]; then
-              exit 0
-            fi
-            sleep 5
-          done
-          echo "::error::PQS never reported an active Amulet"
-          exit 1
 
       - name: Run canton-ledger live suite
         env:
@@ -139,5 +110,5 @@ jobs:
 
       - name: Tear down LocalNet
         if: always()
-        uses: peacefulstudio/canton-localnet/teardown@f4158fccaea2bd2248f37c6b361ed3f37d478dcf # v0.8.4-2
+        uses: peacefulstudio/canton-localnet/teardown@1cf682aae212d4e2fefb882bcf9c97ea95036a59 # v0.8.4-3
 
