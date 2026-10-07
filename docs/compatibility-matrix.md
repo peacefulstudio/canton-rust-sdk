@@ -2,8 +2,8 @@
 
 What this SDK is tested against, and what it therefore claims. Nothing is
 listed on the strength of "it should work" — but not everything is checked by
-CI, and the table under [What CI runs, and what it cannot](#what-ci-runs-and-what-it-cannot)
-says exactly which rows rest on a developer-run live suite instead.
+CI on every push, and the table under [What CI runs, and what it cannot](#what-ci-runs-and-what-it-cannot)
+says exactly which rows run only in the nightly `LocalNet` workflow.
 
 Version **0.3.1**, released 2026-09-26 (the pre-audit fixes over 0.3.0, released 2026-09-23).
 
@@ -29,7 +29,7 @@ bump, not a patch.
 | `x86_64-unknown-linux-musl` | compiles | the `cross-targets` job; no test run |
 
 The whole test suite runs on all three. The live suites need a Canton
-participant and are run by a developer, not by CI — see below.
+participant; CI runs them against LocalNet in the `LocalNet` workflow, nightly and on demand — see below.
 
 ## Canton and the Ledger API
 
@@ -166,11 +166,11 @@ each file name ends with the package id that hashes its bytes.
 | unit, in-process, TLS, WebSocket | yes | nothing |
 | submit → observe → query, on gRPC and on JSON, as one flow | yes, against an in-process participant (`submit_observe_query_*` in `canton-ledger`'s tests) | nothing; the same flow runs against a real participant in the live suites (`create_contract_and_read_transaction`, `json_submit_and_read_back`) |
 | conformance (`canton-conformance`) | yes | nothing |
-| bindings drift, eighteen of the nineteen generated crates | yes | the pinned DARs, fetched and checksummed; the V2 and stdlib crates need nothing. `canton-quickstart-licensing` is the exception — its DAR is built from source, so it is guarded locally and not in CI |
+| bindings drift, eighteen of the nineteen generated crates | yes | the pinned DARs, fetched and checksummed; the V2 and stdlib crates need nothing. `canton-quickstart-licensing` is the exception — its DAR is built from source, so it is guarded locally and not in the drift job; the DAR is committed under `testdata/live` for the `LocalNet` workflow |
 | Daml-LF conformance oracle | yes | a JVM |
-| live Ledger API, interactive submission | no | a Canton participant |
-| live PQS | no | a Scribe store following the participant — [`tools/pqs/compose.yaml`](../tools/pqs/compose.yaml) runs one against any LocalNet on the host |
-| token-standard registry | no | a Splice Scan — the **super-validator** runs one: a Splice LocalNet or Canton Builder Tool publishes it at `scan.localhost:4000`; cn-quickstart with `SV_PROFILE=on` serves it on `:5012` without publishing the port. The public DevNet Scan serves the same paths unauthenticated |
+| live Ledger API, interactive submission | yes, against LocalNet in the `LocalNet` workflow (nightly, on demand) | a Canton participant |
+| live PQS | yes, against LocalNet in the `LocalNet` workflow (nightly, on demand) | a Scribe store following the participant — [`tools/pqs/compose.yaml`](../tools/pqs/compose.yaml) runs one against any LocalNet on the host |
+| token-standard registry | yes, against LocalNet in the `LocalNet` workflow (nightly, on demand) | a Splice Scan — the **super-validator** runs one: a Splice LocalNet or Canton Builder Tool publishes it at `scan.localhost:4000`; cn-quickstart with `SV_PROFILE=on` serves it on `:5012` without publishing the port. The public DevNet Scan serves the same paths unauthenticated |
 
 A suite CI cannot run is gated on an environment variable and **fails rather
 than skips** when that variable is set — a connection failure and an
