@@ -38,6 +38,7 @@ participant; CI runs them against LocalNet in the `LocalNet` workflow, nightly a
 | Ledger API | **v2** |
 | Canton | **3.5.7** — the release the `.proto` files are vendored from |
 | Verified against | a Canton 3.5.7 participant (LocalNet): submission, streaming, recovery, TLS/mTLS, auth, typed end-to-end on both transports, and interactive submission with an externally-signed party. A Canton **3.5.17** participant on the Canton Network **DevNet** (Splice validator 0.8.1): the token-standard workflows, JSON package and party reads, gRPC over TLS with a Keycloak token |
+| Run in CI | the `LocalNet` workflow boots [canton-localnet](https://github.com/peacefulstudio/canton-localnet) v0.8.4-3, which vendors **Splice 0.8.4**, and runs the live suites against it nightly and on demand. The Canton participant is the one that Splice release ships; the workflow does not pin it, and the 3.5.7 row above is the developer-run verification |
 
 Moving the supported Canton range re-vendors the protos in a new SDK minor. See
 the stability policy in [`canton-proto`](../crates/canton-proto/src/lib.rs) and
@@ -169,13 +170,19 @@ each file name ends with the package id that hashes its bytes.
 | bindings drift, eighteen of the nineteen generated crates | yes | the pinned DARs, fetched and checksummed; the V2 and stdlib crates need nothing. `canton-quickstart-licensing` is the exception — its DAR is built from source, so it is guarded locally and not in the drift job; the DAR is committed under `testdata/live` for the `LocalNet` workflow |
 | Daml-LF conformance oracle | yes | a JVM |
 | live Ledger API, interactive submission | yes, against LocalNet in the `LocalNet` workflow (nightly, on demand) | a Canton participant |
+| live admin (`canton-admin`) | yes, against LocalNet in the `LocalNet` workflow (nightly, on demand); the `vetted(synchronizer)` branch of the topology test does not run, because `CANTON_TEST_SYNC_ID` is unset | a Canton participant with its admin API reachable |
 | live PQS | yes, against LocalNet in the `LocalNet` workflow (nightly, on demand) | a Scribe store following the participant — [`tools/pqs/compose.yaml`](../tools/pqs/compose.yaml) runs one against any LocalNet on the host |
 | token-standard registry | yes, against LocalNet in the `LocalNet` workflow (nightly, on demand) | a Splice Scan — the **super-validator** runs one: a Splice LocalNet or Canton Builder Tool publishes it at `scan.localhost:4000`; cn-quickstart with `SV_PROFILE=on` serves it on `:5012` without publishing the port. The public DevNet Scan serves the same paths unauthenticated |
 
-A suite CI cannot run is gated on an environment variable and **fails rather
-than skips** when that variable is set — a connection failure and an
-unconfigured machine used to look the same in a green run, and they are not the
-same thing.
+The `LocalNet` workflow sets `CANTON_TEST_REQUIRE_LIVE`, so a suite that cannot
+reach its environment **fails rather than skips**, and it asserts each suite's
+exact passed count and zero ignored tests: ledger 36, interactive 3, admin 5,
+PQS 9, token 5. One PQS test skips without that guard when the store holds no
+Amulet, so the workflow also requires the line that test prints when it
+compares. Outside CI, a suite gated on an environment variable skips when the
+variable is unset and fails when it is set and the connection fails — a
+connection failure and an unconfigured machine used to look the same in a green
+run, and they are not the same thing.
 
 ## Conformance to the Ledger Client Standard
 
